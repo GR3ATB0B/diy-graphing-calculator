@@ -7,8 +7,8 @@ void Display::begin() {
     digitalWrite(TFT_BLK, HIGH);
 
     _tft.begin();
-    _tft.setRotation(0);  // Portrait 240×320
+    _tft.setRotation(1);  // Landscape 320×240
     _tft.fillScreen(COL_BG);
 
-    Serial.println("ILI9341 display initialized (240x320 portrait)");
+    Serial.println("ILI9341 display initialized (320x240 landscape)");
 }
