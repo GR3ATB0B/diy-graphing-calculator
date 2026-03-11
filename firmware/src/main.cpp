@@ -14,10 +14,18 @@ CalcScreen    calcScreen;
 
 void setup() {
     Serial.begin(115200);
+    delay(500);
     Serial.println("Nash Calculator v0.2 (CardKB)");
 
+    Serial.printf("PSRAM size: %d bytes\n", ESP.getPsramSize());
+
+    Serial.println("Display init...");
     display.begin();
+    Serial.println("Display OK");
+
+    Serial.println("CardKB init...");
     cardkb.begin();
+    Serial.println("CardKB OK");
 
     // Wake button (for future deep sleep wake)
     pinMode(PIN_WAKE, INPUT_PULLUP);
@@ -34,12 +42,16 @@ void setup() {
         s->draw(display.sprite());
         display.flush();
     }
+
+    Serial.println("Setup complete");
 }
 
 void loop() {
     char key = cardkb.read();
 
     if (key != '\0') {
+        Serial.printf("Key: 0x%02X '%c'\n", key, key);
+
         Screen* s = screens.current();
         if (s) {
             s->handleInput(key);
