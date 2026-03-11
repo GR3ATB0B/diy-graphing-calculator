@@ -1,0 +1,1559 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>TI-84 Plus CE</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box;user-select:none}
+body{background:#1a1a1a;display:flex;justify-content:center;align-items:center;min-height:100vh;font-family:Arial,Helvetica,sans-serif}
+#calc{width:340px;background:linear-gradient(145deg,#2d2d2d 0%,#1f1f1f 100%);border-radius:18px;padding:14px 14px 18px;border:2px solid #3a3a3a;position:relative}
+#calc-label{text-align:center;color:#888;font-size:10px;letter-spacing:4px;margin-bottom:6px;font-weight:bold}
+#brand{text-align:right;color:#666;font-size:8px;margin-bottom:8px;padding-right:4px}
+#display-frame{background:#111;border-radius:8px;padding:6px;margin-bottom:10px;border:1px solid #444}
+#display{width:100%;height:200px;background:#e8e8e0;border-radius:4px;overflow:hidden;position:relative;font-family:'Courier New',monospace}
+#status-bar{height:16px;background:#d8d8d0;border-bottom:1px solid #c0c0b8;display:flex;align-items:center;justify-content:space-between;padding:0 6px;font-size:9px;color:#333}
+#display-content{padding:4px 6px;height:184px;overflow-y:auto;font-size:14px;color:#111;line-height:1.5;position:relative;white-space:pre-wrap;word-wrap:break-word}
+#display-content::-webkit-scrollbar{width:0}
+@keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+.cursor{display:inline-block;width:8px;height:14px;background:#111;animation:blink 1s infinite;vertical-align:text-bottom}
+#graph-canvas{position:absolute;top:16px;left:0;width:100%;height:184px;display:none}
+#keypad{display:flex;flex-direction:column;gap:3px}
+.key-row{display:flex;gap:3px;justify-content:center}
+.key{display:flex;flex-direction:column;align-items:center;cursor:pointer;position:relative}
+.key-2nd{font-size:7px;color:#f0c040;height:10px;line-height:10px;text-align:center;white-space:nowrap}
+.key-btn{display:flex;align-items:center;justify-content:center;border:1px solid #555;border-radius:4px;font-size:10px;font-weight:bold;color:#eee;text-align:center;cursor:pointer;transition:filter 0.05s}
+.key-btn:active,.key-btn.active{filter:brightness(1.5);transform:translateY(1px)}
+.k-graph .key-btn{width:56px;height:24px;background:#444;font-size:9px;border-radius:3px}
+.k-std .key-btn{width:56px;height:30px;background:#333}
+.k-num .key-btn{width:56px;height:30px;background:#484848}
+.k-op .key-btn{width:56px;height:30px;background:#1a3a6a;color:#9cf}
+.k-enter .key-btn{width:56px;height:52px;background:#1a3a6a;color:#fff;font-size:11px;border-radius:5px}
+.k-2nd .key-btn{width:56px;height:30px;background:#c8a020;color:#222}
+.k-clear .key-btn{width:56px;height:30px;background:#555}
+.k-on .key-btn{width:56px;height:30px;background:#555;font-size:9px}
+#arrow-cluster{display:flex;justify-content:center;margin:4px 0}
+#arrow-grid{display:grid;grid-template-columns:28px 28px 28px;grid-template-rows:24px 24px 24px;gap:1px}
+.arrow-btn{background:#444;color:#eee;border:1px solid #555;border-radius:3px;font-size:12px;display:flex;align-items:center;justify-content:center;cursor:pointer}
+.arrow-btn:active{filter:brightness(1.5)}
+.arrow-blank{background:transparent;border:none}
+</style>
+</head>
+<body>
+<div id="calc">
+<div id="calc-label">TI-84 Plus CE</div>
+<div id="display-frame">
+<div id="display">
+<div id="status-bar">
+<span id="sb-left"><span id="sb-2nd"></span> <span id="sb-mode">RAD</span></span>
+<span id="sb-right"></span>
+</div>
+<div id="display-content"></div>
+<canvas id="graph-canvas" width="312" height="184"></canvas>
+</div>
+</div>
+<div id="brand">TEXAS INSTRUMENTS</div>
+<div id="keypad"></div>
+</div>
+
+<script>
+// ====== STATE ======
+const S = {
+  screen: 'home',
+  secondActive: false,
+  angleMode: 'RAD',
+  cursorPos: 0,
+  inputBuf: '',
+  history: [],
+  historyScroll: 0,
+  ans: 0,
+  vars: {A:0,B:0,C:0,D:0,E:0,F:0,G:0,H:0,I:0,J:0,K:0,L:0,M:0,N:0,O:0,P:0,Q:0,R:0,S:0,T:0,U:0,V:0,W:0,X:0,Y:0,Z:0,θ:0},
+  yFuncs: [{expr:'',active:true},{expr:'',active:true},{expr:'',active:true},{expr:'',active:true},{expr:'',active:true},{expr:'',active:true}],
+  yColors: ['#0000cc','#cc0000','#009900','#cc6600','#8800aa','#008888'],
+  win: {Xmin:-10,Xmax:10,Xscl:1,Ymin:-10,Ymax:10,Yscl:1,Xres:1},
+  tblStart: 0, tblStep: 1,
+  yEditIdx: 0,
+  winFieldIdx: 0,
+  menuIdx: 0,
+  menuSub: 0,
+  traceFunc: 0,
+  traceX: 0,
+  tableStart: 0,
+  insertMode: false,
+  entryHistory: [],
+  entryIdx: -1,
+  calcMode: null, // for CALC menu on graph: 'value','zero','min','max','intersect','dydx','integral'
+  calcStep: 0,
+  calcBounds: {},
+  solverExpr: '',
+  solverVar: 'X',
+  solverGuess: '0',
+  solverField: 0,
+};
+
+const $content = () => document.getElementById('display-content');
+const $canvas = () => document.getElementById('graph-canvas');
+const $sb2nd = () => document.getElementById('sb-2nd');
+const $sbMode = () => document.getElementById('sb-mode');
+const $sbRight = () => document.getElementById('sb-right');
+
+function render() {
+  $sb2nd().textContent = S.secondActive ? '2ND' : '';
+  $sbMode().textContent = S.angleMode;
+  $sbRight().textContent = screenLabel();
+  const dc = $content();
+  const cv = $canvas();
+  if (S.screen === 'graph' || S.screen === 'trace' || S.screen === 'calc_input') {
+    dc.style.display = 'none';
+    cv.style.display = 'block';
+    drawGraph();
+    return;
+  }
+  dc.style.display = '';
+  cv.style.display = 'none';
+  switch(S.screen) {
+    case 'home': renderHome(); break;
+    case 'yedit': renderYEdit(); break;
+    case 'window': renderWindow(); break;
+    case 'table': renderTable(); break;
+    case 'tblset': renderTblSet(); break;
+    case 'zoom': renderMenu('ZOOM',zoomItems); break;
+    case 'math': renderMathMenu(); break;
+    case 'stat': renderMenu('STAT',['1:Edit...','2:SortA(','3:SortD(','4:ClrList','5:SetUpEditor']); break;
+    case 'prgm': renderMenu('PRGM',['1:Create New','2:Edit','3:Exec']); break;
+    case 'apps': renderMenu('APPS',['1:Equation Solver','2:Finance','3:SciTools','4:Polynomial']); break;
+    case 'vars': renderVars(); break;
+    case 'calc_menu': renderMenu('CALCULATE',calcMenuItems); break;
+    case 'mode': renderModeScreen(); break;
+    case 'format': renderMenu('FORMAT',['RectGC PolarGC','CoordOn CoordOff','GridOff GridOn','AxesOn AxesOff','LabelOff LabelOn']); break;
+    case 'statplot': renderMenu('STAT PLOT',['1:Plot1...On','2:Plot2...Off','3:Plot3...Off','4:PlotsOff']); break;
+    case 'solver': renderSolver(); break;
+    default: renderHome();
+  }
+}
+
+function screenLabel() {
+  const m = {home:'',yedit:'Y=',window:'WINDOW',graph:'GRAPH',trace:'TRACE',table:'TABLE',tblset:'TBLSET',
+    zoom:'ZOOM',math:'MATH',stat:'STAT',prgm:'PRGM',apps:'APPS',vars:'VARS',mode:'MODE',
+    calc_menu:'CALC',calc_input:'CALC',format:'FORMAT',statplot:'STATPLOT',solver:'SOLVER'};
+  return m[S.screen]||'';
+}
+
+// ====== RENDER FUNCTIONS ======
+function renderHome() {
+  let html = '';
+  for (const h of S.history) {
+    html += `<div style="text-align:left">${escHtml(h.expr)}</div>`;
+    html += `<div style="text-align:right;font-weight:bold">${escHtml(String(h.result))}</div>`;
+  }
+  html += `<div style="text-align:left">${escHtml(S.inputBuf.slice(0,S.cursorPos))}<span class="cursor"></span>${escHtml(S.inputBuf.slice(S.cursorPos))}</div>`;
+  $content().innerHTML = html;
+  $content().scrollTop = $content().scrollHeight;
+}
+
+function renderYEdit() {
+  let html = '<div style="font-weight:bold;margin-bottom:4px">Plot1 Plot2 Plot3</div>';
+  for (let i = 0; i < 6; i++) {
+    const sel = i === S.yEditIdx;
+    const yf = S.yFuncs[i];
+    const eqSign = yf.active ? '<span style="background:#111;color:#e8e8e0;padding:0 1px">=</span>' : '=';
+    if (sel) {
+      html += `<div style="color:${S.yColors[i]};${sel?'background:#ccc;':''}padding:1px 2px">\\Y${i+1}${eqSign}${escHtml(S.inputBuf.slice(0,S.cursorPos))}<span class="cursor"></span>${escHtml(S.inputBuf.slice(S.cursorPos))}</div>`;
+    } else {
+      html += `<div style="color:${S.yColors[i]};padding:1px 2px">\\Y${i+1}${eqSign}${escHtml(yf.expr)}</div>`;
+    }
+  }
+  $content().innerHTML = html;
+}
+
+function renderWindow() {
+  const fields = ['Xmin','Xmax','Xscl','Ymin','Ymax','Yscl','Xres'];
+  let html = '<div style="font-weight:bold;margin-bottom:4px">WINDOW</div>';
+  fields.forEach((f,i) => {
+    const sel = i === S.winFieldIdx;
+    html += `<div style="${sel?'background:#ccc;':''}padding:1px 2px">${f}=${sel ? escHtml(S.inputBuf) + '<span class="cursor"></span>' : S.win[f]}</div>`;
+  });
+  $content().innerHTML = html;
+}
+
+function renderTable() {
+  const actFuncs = S.yFuncs.map((y,i) => y.active && y.expr ? i : -1).filter(i => i >= 0);
+  let html = '<div style="font-family:monospace;font-size:11px">';
+  let header = padR('X',8);
+  actFuncs.forEach(i => header += padR('Y'+(i+1),10));
+  html += `<div style="border-bottom:1px solid #888;font-weight:bold">${escHtml(header)}</div>`;
+  for (let r = 0; r < 10; r++) {
+    const x = S.tblStart + (S.tableStart + r) * S.tblStep;
+    let line = padR(fmtNum(x),8);
+    actFuncs.forEach(i => {
+      try { line += padR(fmtNum(evalExpr(S.yFuncs[i].expr, x)),10); }
+      catch(e) { line += padR('ERR',10); }
+    });
+    const sel = r === 0;
+    html += `<div${sel?' style="background:#ccc"':''}>${escHtml(line)}</div>`;
+  }
+  html += '</div>';
+  $content().innerHTML = html;
+}
+
+function renderTblSet() {
+  let html = '<div style="font-weight:bold;margin-bottom:4px">TABLE SETUP</div>';
+  const fields = [{label:'TblStart',key:'tblStart'},{label:'ΔTbl',key:'tblStep'}];
+  fields.forEach((f,i) => {
+    const sel = i === S.winFieldIdx;
+    html += `<div style="${sel?'background:#ccc;':''}padding:1px 2px">${f.label}=${sel ? escHtml(S.inputBuf) + '<span class="cursor"></span>' : S[f.key]}</div>`;
+  });
+  html += '<div style="margin-top:8px">Indpnt: Auto  Ask</div>';
+  html += '<div>Depend: Auto  Ask</div>';
+  $content().innerHTML = html;
+}
+
+const zoomItems = ['1:ZBox','2:Zoom In','3:Zoom Out','4:ZDecimal','5:ZSquare','6:ZStandard','7:ZTrig','8:ZInteger','9:ZoomStat','0:ZoomFit'];
+
+const mathMenuItems = [
+  ['1:►Frac','2:►Dec','3:³(','4:³√(','5:ˣ√(','6:fMin(','7:fMax(','8:nDeriv(','9:fnInt(','0:Σ(','A:logBASE(','B:solve('],
+  ['1:abs(','2:round(','3:iPart(','4:fPart(','5:int(','6:min(','7:max(','8:lcm(','9:gcd('],
+  ['1:conj(','2:real(','3:imag(','4:angle(','5:abs('],
+  ['1:nPr','2:nCr','3:!','4:randInt(','5:randNorm(','6:randBin(']
+];
+
+const calcMenuItems = ['1:value','2:zero','3:minimum','4:maximum','5:intersect','6:dy/dx','7:∫f(x)dx'];
+
+function renderMathMenu() {
+  const tabs = ['MATH','NUM','CPX','PROB'];
+  let html = '<div style="display:flex;gap:8px;margin-bottom:4px;font-weight:bold;font-size:11px">';
+  tabs.forEach((t,i) => html += `<span style="${i===S.menuSub?'background:#111;color:#e8e8e0;padding:0 3px':''}">${t}</span>`);
+  html += '</div>';
+  const list = mathMenuItems[S.menuSub] || mathMenuItems[0];
+  list.forEach((item,i) => {
+    html += `<div style="${i===S.menuIdx?'background:#ccc;':''}padding:1px 2px">${escHtml(item)}</div>`;
+  });
+  $content().innerHTML = html;
+}
+
+function renderMenu(title, items) {
+  let html = `<div style="font-weight:bold;margin-bottom:4px">${escHtml(title)}</div>`;
+  items.forEach((item,i) => {
+    html += `<div style="${i===S.menuIdx?'background:#ccc;':''}padding:1px 2px">${escHtml(item)}</div>`;
+  });
+  $content().innerHTML = html;
+}
+
+function renderVars() {
+  let html = '<div style="font-weight:bold;margin-bottom:4px">VARS</div>';
+  let hasVars = false;
+  for (const [k,v] of Object.entries(S.vars)) {
+    html += `<div style="${Object.keys(S.vars).indexOf(k)===S.menuIdx?'background:#ccc;':''}padding:1px 2px">${k} = ${fmtNum(v)}</div>`;
+    hasVars = true;
+  }
+  $content().innerHTML = html;
+}
+
+function renderModeScreen() {
+  const modes = [
+    {label:'Normal Sci Eng', active:'Normal'},
+    {label:'Float 0123456789', active:'Float'},
+    {label:'Radian Degree', active:S.angleMode==='RAD'?'Radian':'Degree'},
+    {label:'Func Par Pol Seq', active:'Func'},
+    {label:'Connected Dot', active:'Connected'},
+    {label:'Sequential Simul', active:'Sequential'},
+    {label:'Real a+bi re^θi', active:'Real'},
+    {label:'Full Horiz G-T', active:'Full'},
+  ];
+  let html = '<div style="font-weight:bold;margin-bottom:4px">MODE</div>';
+  modes.forEach((m,i) => {
+    // highlight the active option within the line
+    const parts = m.label.split(' ');
+    let line = parts.map(p => p === m.active ? `<span style="background:#111;color:#e8e8e0;padding:0 2px">${p}</span>` : p).join(' ');
+    html += `<div style="${i===S.menuIdx?'background:#ccc;':''}padding:1px 2px">${line}</div>`;
+  });
+  $content().innerHTML = html;
+}
+
+function renderSolver() {
+  let html = '<div style="font-weight:bold;margin-bottom:4px">EQUATION SOLVER</div>';
+  html += `<div style="${S.solverField===0?'background:#ccc;':''}padding:1px 2px">eqn: 0=${S.solverField===0 ? escHtml(S.inputBuf)+'<span class="cursor"></span>' : escHtml(S.solverExpr)}</div>`;
+  html += `<div style="${S.solverField===1?'background:#ccc;':''}padding:1px 2px">${S.solverVar}=${S.solverField===1 ? escHtml(S.inputBuf)+'<span class="cursor"></span>' : escHtml(S.solverGuess)}</div>`;
+  html += '<div style="margin-top:8px;font-size:11px">Press ENTER to solve</div>';
+  if (S.solverResult !== undefined) {
+    html += `<div style="margin-top:4px;font-weight:bold">${S.solverVar}=${fmtNum(S.solverResult)}</div>`;
+  }
+  $content().innerHTML = html;
+}
+
+// ====== GRAPHING ======
+function drawGraph() {
+  const cv = $canvas();
+  cv.style.display = 'block';
+  const ctx = cv.getContext('2d');
+  const W = cv.width, H = cv.height;
+  const {Xmin,Xmax,Ymin,Ymax,Xscl,Yscl} = S.win;
+  ctx.fillStyle = '#e8e8e0';
+  ctx.fillRect(0,0,W,H);
+  function sx(x){return (x-Xmin)/(Xmax-Xmin)*W}
+  function sy(y){return H-(y-Ymin)/(Ymax-Ymin)*H}
+  // Grid
+  ctx.strokeStyle = '#ccc'; ctx.lineWidth = 0.5;
+  for (let x = Math.ceil(Xmin/Xscl)*Xscl; x <= Xmax; x += Xscl) {
+    ctx.beginPath();ctx.moveTo(sx(x),0);ctx.lineTo(sx(x),H);ctx.stroke();
+  }
+  for (let y = Math.ceil(Ymin/Yscl)*Yscl; y <= Ymax; y += Yscl) {
+    ctx.beginPath();ctx.moveTo(0,sy(y));ctx.lineTo(W,sy(y));ctx.stroke();
+  }
+  // Axes
+  ctx.strokeStyle = '#333'; ctx.lineWidth = 1;
+  if (Xmin<=0&&Xmax>=0){ctx.beginPath();ctx.moveTo(sx(0),0);ctx.lineTo(sx(0),H);ctx.stroke();}
+  if (Ymin<=0&&Ymax>=0){ctx.beginPath();ctx.moveTo(0,sy(0));ctx.lineTo(W,sy(0));ctx.stroke();}
+  // Ticks
+  for (let x=Math.ceil(Xmin/Xscl)*Xscl;x<=Xmax;x+=Xscl){if(Ymin<=0&&Ymax>=0){ctx.beginPath();ctx.moveTo(sx(x),sy(0)-3);ctx.lineTo(sx(x),sy(0)+3);ctx.stroke();}}
+  for (let y=Math.ceil(Ymin/Yscl)*Yscl;y<=Ymax;y+=Yscl){if(Xmin<=0&&Xmax>=0){ctx.beginPath();ctx.moveTo(sx(0)-3,sy(y));ctx.lineTo(sx(0)+3,sy(y));ctx.stroke();}}
+  // Plot functions
+  const step = (Xmax-Xmin)/W;
+  S.yFuncs.forEach((yf,fi) => {
+    if (!yf.active||!yf.expr) return;
+    ctx.strokeStyle = S.yColors[fi]; ctx.lineWidth = 2; ctx.beginPath();
+    let started = false;
+    for (let px=0;px<W;px++){
+      const x = Xmin+px*step;
+      try {
+        const y = evalExpr(yf.expr, x);
+        if (!isFinite(y)){started=false;continue;}
+        const py = sy(y);
+        if (py<-100||py>H+100){started=false;continue;}
+        if (!started){ctx.moveTo(px,py);started=true;}
+        else ctx.lineTo(px,py);
+      } catch(e){started=false;}
+    }
+    ctx.stroke();
+  });
+  // Trace cursor
+  if (S.screen === 'trace') {
+    const fi = S.traceFunc;
+    const yf = S.yFuncs[fi];
+    if (yf && yf.expr) {
+      try {
+        const y = evalExpr(yf.expr, S.traceX);
+        if (isFinite(y)) {
+          ctx.fillStyle = S.yColors[fi];
+          ctx.beginPath(); ctx.arc(sx(S.traceX), sy(y), 5, 0, Math.PI*2); ctx.fill();
+          ctx.strokeStyle='#fff';ctx.lineWidth=1;ctx.beginPath();ctx.arc(sx(S.traceX),sy(y),5,0,Math.PI*2);ctx.stroke();
+          // Function label at top
+          ctx.fillStyle='#e8e8e0';ctx.fillRect(0,0,W,14);
+          ctx.fillStyle='#111';ctx.font='11px Courier New';
+          ctx.fillText(`Y${fi+1}=${yf.expr}`, 4, 11);
+          // Coords at bottom
+          ctx.fillStyle='#e8e8e0';ctx.fillRect(0,H-16,W,16);
+          ctx.fillStyle='#111';ctx.font='11px Courier New';
+          ctx.fillText(`X=${fmtNum(S.traceX)}  Y=${fmtNum(y)}`, 4, H-4);
+        }
+      } catch(e){}
+    }
+  }
+  // CALC input overlay
+  if (S.screen === 'calc_input') {
+    ctx.fillStyle='#e8e8e0';ctx.fillRect(0,H-16,W,16);
+    ctx.fillStyle='#111';ctx.font='11px Courier New';
+    const labels = {value:'X=',zero_lb:'Left Bound? X=',zero_rb:'Right Bound? X=',zero_guess:'Guess? X=',
+      min_lb:'Left Bound? X=',min_rb:'Right Bound? X=',min_guess:'Guess? X=',
+      max_lb:'Left Bound? X=',max_rb:'Right Bound? X=',max_guess:'Guess? X=',
+      dydx:'X=',int_lb:'Lower? X=',int_ub:'Upper? X='};
+    const lbl = labels[S.calcStep] || 'X=';
+    ctx.fillText(lbl + S.inputBuf, 4, H-4);
+    // Show cursor on function
+    if (S.inputBuf) {
+      try {
+        const xv = parseFloat(S.inputBuf);
+        const fi = S.traceFunc;
+        if (S.yFuncs[fi] && S.yFuncs[fi].expr && isFinite(xv)) {
+          const yv = evalExpr(S.yFuncs[fi].expr, xv);
+          if (isFinite(yv)) {
+            ctx.fillStyle=S.yColors[fi];ctx.beginPath();ctx.arc(sx(xv),sy(yv),4,0,Math.PI*2);ctx.fill();
+          }
+        }
+      } catch(e){}
+    }
+  }
+}
+
+// ====== EXPRESSION PARSER ======
+const funcNames = [
+  'solve(','nDeriv(','fnInt(','Σ(','logBASE(',
+  'sin⁻¹(','cos⁻¹(','tan⁻¹(',
+  'sin(','cos(','tan(',
+  'ln(','log(','10^(','e^(',
+  '√(','³√(','ˣ√(',
+  'abs(','int(','round(','iPart(','fPart(',
+  'min(','max(','lcm(','gcd(',
+  'nPr','nCr',
+  'fMin(','fMax(',
+  'randInt(','randNorm(','randBin(',
+];
+
+function evalExpr(expr, xVal) {
+  if (typeof xVal === 'undefined') xVal = S.vars.X;
+  // Pre-process: handle solve() and nDeriv() specially
+  if (expr.includes('solve(')) return evalSolve(expr, xVal);
+  if (expr.includes('nDeriv(')) return evalNDeriv(expr, xVal);
+  const tokens = tokenize(expr, xVal);
+  return parseExprTokens(tokens, {pos:0});
+}
+
+function evalSolve(exprText) {
+  const m = exprText.match(/solve\((.+),\s*([A-Zθ])\s*(?:,\s*(.+))?\)$/);
+  if (!m) return NaN;
+  let fExpr = m[1], varName = m[2], guess = m[3] ? parseFloat(m[3]) : 0;
+  if (fExpr.includes('=')) {
+    const parts = fExpr.split('=');
+    fExpr = `(${parts[0]})-(${parts[1]})`;
+  }
+  // Try multiple starting points
+  const starts = [guess, 0, 1, -1, 2, -2, 5, -5, 10, -10];
+  const solutions = [];
+  for (const s0 of starts) {
+    let x = s0;
+    let converged = false;
+    for (let i = 0; i < 200; i++) {
+      const oldX = S.vars[varName];
+      S.vars[varName] = x;
+      let fx, dfx;
+      try {
+        const tokens1 = tokenize(fExpr, varName==='X'?x:undefined);
+        fx = parseExprTokens(tokens1, {pos:0});
+        S.vars[varName] = x + 1e-8;
+        const tokens2 = tokenize(fExpr, varName==='X'?x+1e-8:undefined);
+        const fx2 = parseExprTokens(tokens2, {pos:0});
+        S.vars[varName] = x - 1e-8;
+        const tokens3 = tokenize(fExpr, varName==='X'?x-1e-8:undefined);
+        const fx3 = parseExprTokens(tokens3, {pos:0});
+        dfx = (fx2 - fx3) / (2e-8);
+      } catch(e) { S.vars[varName]=oldX; break; }
+      S.vars[varName] = oldX;
+      if (Math.abs(dfx) < 1e-15) break;
+      const nx = x - fx/dfx;
+      if (Math.abs(nx-x) < 1e-12) { x = nx; converged = true; break; }
+      x = nx;
+    }
+    if (converged && isFinite(x)) {
+      const rounded = Math.abs(x) < 1e-10 ? 0 : parseFloat(x.toPrecision(12));
+      if (!solutions.some(s => Math.abs(s-rounded) < 1e-8)) solutions.push(rounded);
+    }
+  }
+  if (solutions.length === 0) return NaN;
+  S.vars[m[2]] = solutions[0];
+  return solutions[0];
+}
+
+function evalNDeriv(exprText) {
+  const m = exprText.match(/nDeriv\((.+),\s*([A-Zθ])\s*,\s*(.+)\)/);
+  if (!m) return NaN;
+  const fExpr = m[1], a = evalExpr(m[3]);
+  const h = 1e-6;
+  return (evalExpr(fExpr, a+h) - evalExpr(fExpr, a-h)) / (2*h);
+}
+
+function tokenize(expr, xVal) {
+  const tokens = [];
+  let i = 0;
+  const s = expr;
+  while (i < s.length) {
+    if (s[i] === ' ') { i++; continue; }
+    // Numbers
+    if (/[0-9.]/.test(s[i]) || (s[i] === '⁻' && i > 0 && /[0-9.]/.test(s[i+1]||''))) {
+      let num = '';
+      if (s[i] === '⁻') { num = '-'; i++; }
+      while (i < s.length && /[0-9.Eᴇ]/.test(s[i])) {
+        if (s[i] === 'ᴇ') { num += 'e'; i++; if (i<s.length&&s[i]==='⁻'){num+='-';i++;} continue; }
+        num += s[i]; i++;
+      }
+      tokens.push({type:'num', val:parseFloat(num)});
+      continue;
+    }
+    // Negative at start or after operator/lparen
+    if (s[i] === '⁻') {
+      tokens.push({type:'op',val:'-'});
+      i++; continue;
+    }
+    if (s[i] === 'π') { tokens.push({type:'num',val:Math.PI}); i++; continue; }
+    if (s[i] === 'e' && s.slice(i,i+2) === 'e^') { i++; continue; } // let e^( handle it
+    if (s[i] === 'e' && (i+1>=s.length || !/[a-zA-Z(^]/.test(s[i+1]))) {
+      tokens.push({type:'num',val:Math.E}); i++; continue;
+    }
+    if ((s[i] === 'X' || s[i] === 'x') && (i+1>=s.length || s[i+1]!=='²' && !(s[i+1]==='⁻'&&s[i+2]==='¹'))) {
+      tokens.push({type:'num',val:xVal}); i++; continue;
+    }
+    if (s[i]==='θ') { tokens.push({type:'num',val:S.vars['θ']}); i++; continue; }
+    if (s.slice(i,i+3).toUpperCase()==='ANS') { tokens.push({type:'num',val:S.ans}); i+=3; continue; }
+    // Variables A-Z (but not if it starts a function)
+    if (/^[A-Zθ]$/.test(s[i]) && s[i]!=='X' && s[i]!=='x') {
+      const rest = s.slice(i);
+      let isFunc = false;
+      for (const fn of funcNames) { if (rest.startsWith(fn)) { isFunc = true; break; } }
+      if (!isFunc) { tokens.push({type:'num',val:S.vars[s[i]]||0}); i++; continue; }
+    }
+    // ►Frac / ►Dec
+    if (s[i] === '►') {
+      if (s.slice(i,i+5)==='►Frac') { tokens.push({type:'suffix',val:'frac'}); i+=5; continue; }
+      if (s.slice(i,i+4)==='►Dec') { tokens.push({type:'suffix',val:'dec'}); i+=4; continue; }
+      i++; continue;
+    }
+    // x² and x⁻¹ as postfix
+    if (s[i]==='²') { tokens.push({type:'op',val:'^'},{type:'num',val:2}); i++; continue; }
+    if (s.slice(i,i+2)==='⁻¹') { tokens.push({type:'op',val:'^'},{type:'num',val:-1}); i+=2; continue; }
+    // Functions
+    let matched = false;
+    for (const fn of funcNames) {
+      if (s.slice(i, i+fn.length) === fn) {
+        tokens.push({type:'func', val:fn});
+        i += fn.length;
+        matched = true; break;
+      }
+    }
+    if (matched) continue;
+    // Operators
+    if (s[i]==='+'){tokens.push({type:'op',val:'+'});i++;continue;}
+    if (s[i]==='−'||s[i]==='-'){tokens.push({type:'op',val:'-'});i++;continue;}
+    if (s[i]==='×'||s[i]==='*'){tokens.push({type:'op',val:'*'});i++;continue;}
+    if (s[i]==='÷'||s[i]==='/'){tokens.push({type:'op',val:'/'});i++;continue;}
+    if (s[i]==='^'){tokens.push({type:'op',val:'^'});i++;continue;}
+    if (s[i]==='('){tokens.push({type:'lp'});i++;continue;}
+    if (s[i]===')'){tokens.push({type:'rp'});i++;continue;}
+    if (s[i]==='{'||s[i]==='['){tokens.push({type:'lp'});i++;continue;}
+    if (s[i]==='}'||s[i]===']'){tokens.push({type:'rp'});i++;continue;}
+    if (s[i]===','){tokens.push({type:'comma'});i++;continue;}
+    if (s[i]==='³'&&(i+1>=s.length||s[i+1]!=='√')){tokens.push({type:'op',val:'^'},{type:'num',val:3});i++;continue;}
+    if (s[i]==='!'){tokens.push({type:'postfix',val:'!'});i++;continue;}
+    if (s[i]==='='){tokens.push({type:'op',val:'-'});i++;continue;} // treat = as - for solving
+    i++;
+  }
+  // Insert implicit multiplication
+  const out = [];
+  for (let j=0;j<tokens.length;j++){
+    const t = tokens[j];
+    if (j>0){
+      const p = out[out.length-1];
+      if (p && (p.type==='num'||p.type==='rp'||p.type==='postfix') && (t.type==='num'||t.type==='lp'||t.type==='func'))
+        out.push({type:'op',val:'*'});
+    }
+    out.push(t);
+  }
+  return out;
+}
+
+function parseExprTokens(tokens, ctx) {
+  let left = parseTerm(tokens, ctx);
+  while (ctx.pos<tokens.length) {
+    const t = tokens[ctx.pos];
+    if (t.type==='op'&&(t.val==='+'||t.val==='-')){
+      ctx.pos++;
+      const right = parseTerm(tokens, ctx);
+      left = t.val==='+'?left+right:left-right;
+    } else break;
+  }
+  while (ctx.pos<tokens.length&&tokens[ctx.pos].type==='suffix'){
+    const sf = tokens[ctx.pos].val; ctx.pos++;
+    if (sf==='frac') { const fr = toFracStr(left); return fr; }
+  }
+  return left;
+}
+
+function parseTerm(tokens, ctx) {
+  let left = parsePower(tokens, ctx);
+  while (ctx.pos<tokens.length){
+    const t = tokens[ctx.pos];
+    if (t.type==='op'&&(t.val==='*'||t.val==='/')){
+      ctx.pos++;
+      const right = parsePower(tokens, ctx);
+      left = t.val==='*'?left*right:left/right;
+    } else break;
+  }
+  return left;
+}
+
+function parsePower(tokens, ctx) {
+  let left = parseUnary(tokens, ctx);
+  if (ctx.pos<tokens.length&&tokens[ctx.pos].type==='op'&&tokens[ctx.pos].val==='^'){
+    ctx.pos++;
+    const right = parsePower(tokens, ctx);
+    left = Math.pow(left, right);
+  }
+  while (ctx.pos<tokens.length&&tokens[ctx.pos].type==='postfix'&&tokens[ctx.pos].val==='!'){
+    ctx.pos++; left = factorial(left);
+  }
+  return left;
+}
+
+function parseUnary(tokens, ctx) {
+  if (ctx.pos<tokens.length&&tokens[ctx.pos].type==='op'&&tokens[ctx.pos].val==='-'){
+    // Check if this is actually a unary minus (at start, or after op/lp)
+    ctx.pos++;
+    return -parseUnary(tokens, ctx);
+  }
+  return parseAtom(tokens, ctx);
+}
+
+function parseAtom(tokens, ctx) {
+  if (ctx.pos>=tokens.length) return 0;
+  const t = tokens[ctx.pos];
+  if (t.type==='num'){ctx.pos++;return t.val;}
+  if (t.type==='lp'){
+    ctx.pos++;
+    const val = parseExprTokens(tokens, ctx);
+    if (ctx.pos<tokens.length&&tokens[ctx.pos].type==='rp') ctx.pos++;
+    return typeof val==='number'?val:parseFloat(val)||0;
+  }
+  if (t.type==='func'){
+    ctx.pos++;
+    const fn = t.val;
+    if (fn.endsWith('(')){
+      const args = parseArgs(tokens, ctx);
+      return callFunc(fn, args);
+    }
+    if (fn==='nPr'||fn==='nCr'){
+      const right = parseAtom(tokens, ctx);
+      return NaN;
+    }
+    return 0;
+  }
+  ctx.pos++;
+  return 0;
+}
+
+function parseArgs(tokens, ctx) {
+  const args = [];
+  if (ctx.pos<tokens.length&&tokens[ctx.pos].type==='rp'){ctx.pos++;return args;}
+  args.push(parseExprTokens(tokens, ctx));
+  while (ctx.pos<tokens.length&&tokens[ctx.pos].type==='comma'){
+    ctx.pos++;
+    args.push(parseExprTokens(tokens, ctx));
+  }
+  if (ctx.pos<tokens.length&&tokens[ctx.pos].type==='rp') ctx.pos++;
+  return args.map(a => typeof a==='number'?a:parseFloat(a)||0);
+}
+
+function callFunc(fn, args) {
+  const a = args[0]||0;
+  const toRad = v => S.angleMode==='DEG'?v*Math.PI/180:v;
+  const fromRad = v => S.angleMode==='DEG'?v*180/Math.PI:v;
+  switch(fn){
+    case 'sin(': return Math.sin(toRad(a));
+    case 'cos(': return Math.cos(toRad(a));
+    case 'tan(': return Math.tan(toRad(a));
+    case 'sin⁻¹(': return fromRad(Math.asin(a));
+    case 'cos⁻¹(': return fromRad(Math.acos(a));
+    case 'tan⁻¹(': return fromRad(Math.atan(a));
+    case 'ln(': return Math.log(a);
+    case 'log(': return Math.log10(a);
+    case '10^(': return Math.pow(10,a);
+    case 'e^(': return Math.exp(a);
+    case '√(': return Math.sqrt(a);
+    case '³√(': return Math.cbrt(a);
+    case 'ˣ√(': return args.length>1?Math.pow(args[1],1/a):Math.sqrt(a);
+    case 'abs(': return Math.abs(a);
+    case 'int(': return Math.floor(a);
+    case 'round(': return args.length>1?parseFloat(a.toFixed(args[1])):Math.round(a);
+    case 'iPart(': return Math.trunc(a);
+    case 'fPart(': return a-Math.trunc(a);
+    case 'min(': return Math.min(...args);
+    case 'max(': return Math.max(...args);
+    case 'lcm(': return lcm(args[0],args[1]);
+    case 'gcd(': return gcd(args[0],args[1]);
+    case 'logBASE(': return Math.log(a)/Math.log(args[1]||10);
+    case 'randInt(': return Math.floor(Math.random()*(args[1]-a+1))+a;
+    case 'randNorm(': return a+(args[1]||1)*Math.sqrt(-2*Math.log(Math.random()))*Math.cos(2*Math.PI*Math.random());
+    case 'randBin(': {let s=0;for(let i=0;i<a;i++)if(Math.random()<(args[1]||0.5))s++;return s;}
+    case 'fMin(': return a;
+    case 'fMax(': return a;
+    case 'fnInt(': return a;
+    case 'Σ(': return a;
+    case 'nDeriv(': return a;
+    case 'solve(': return a;
+    default: return a;
+  }
+}
+
+function factorial(n){if(n<0||n!==Math.floor(n))return NaN;if(n<=1)return 1;let r=1;for(let i=2;i<=n;i++)r*=i;return r;}
+function gcd(a,b){a=Math.abs(Math.round(a));b=Math.abs(Math.round(b));while(b){[a,b]=[b,a%b];}return a;}
+function lcm(a,b){return Math.abs(a*b)/gcd(a,b);}
+
+function toFracStr(dec) {
+  if (!isFinite(dec)) return dec;
+  if (dec === Math.floor(dec)) return String(dec);
+  const neg = dec < 0; dec = Math.abs(dec);
+  const tol = 1e-9;
+  let h1=1,h2=0,k1=0,k2=1;
+  let x = dec;
+  for (let i=0;i<30;i++){
+    const a = Math.floor(x);
+    const h = a*h1+h2, k = a*k1+k2;
+    h2=h1;h1=h;k2=k1;k1=k;
+    if (Math.abs(dec-h/k)<tol) return (neg?'-':'')+(k===1?String(h):h+'/'+k);
+    if (k>100000) break;
+    if (Math.abs(x-a)<1e-15) break;
+    x = 1/(x-a);
+  }
+  return (neg?'-':'')+h1+'/'+k1;
+}
+
+// ====== EVALUATE INPUT ======
+function evaluate(expr) {
+  if (!expr.trim()) return;
+  // Handle STO→
+  const stoMatch = expr.match(/^(.+)→([A-Zθ])$/);
+  if (stoMatch) {
+    const val = evalExpr(stoMatch[1]);
+    const numVal = typeof val==='number'?val:parseFloat(val);
+    S.vars[stoMatch[2]] = numVal;
+    S.ans = numVal;
+    return numVal;
+  }
+  // Handle ►Frac suffix
+  if (expr.includes('►Frac')) {
+    const base = expr.replace('►Frac','').trim();
+    let val;
+    if (!base) val = S.ans; else val = evalExpr(base);
+    const numVal = typeof val==='number'?val:parseFloat(val);
+    S.ans = numVal;
+    return toFracStr(numVal);
+  }
+  if (expr.includes('►Dec')) {
+    const base = expr.replace('►Dec','').trim();
+    let val;
+    if (!base) val = S.ans; else val = evalExpr(base);
+    const numVal = typeof val==='number'?val:parseFloat(val);
+    S.ans = numVal;
+    return numVal;
+  }
+  const val = evalExpr(expr);
+  const numVal = typeof val==='number'?val:parseFloat(val);
+  if (isFinite(numVal)) S.ans = numVal;
+  return val;
+}
+
+// ====== KEY HANDLING ======
+function handleKey(id) {
+  if (id === '2nd') {
+    S.secondActive = !S.secondActive;
+    render(); return;
+  }
+  if (S.secondActive) {
+    S.secondActive = false;
+    const mapped = second_map[id];
+    if (mapped) { handleAction(mapped); render(); return; }
+  }
+  handleAction(id);
+  render();
+}
+
+const second_map = {
+  'y=': 'statplot',
+  'window': 'tblset',
+  'zoom': 'format',
+  'trace': 'calc_menu',
+  'graph': 'table',
+  'mode': 'quit',
+  'del': 'ins',
+  'x-1': 'matrix',
+  'sin': 'asin',
+  'cos': 'acos',
+  'tan': 'atan',
+  '^': 'pi',
+  'x2': 'sqrt',
+  ',': 'ee',
+  '(': '{',
+  ')': '}',
+  '÷': 'euler',
+  'log': 'tenx',
+  '×': '[',
+  'ln': 'ex',
+  '−': ']',
+  'sto': 'rcl',
+  '+': 'mem_menu',
+  '0': 'catalog',
+  '.': 'imag',
+  'neg': 'ans_val',
+  'enter': 'entry',
+};
+
+function handleAction(id) {
+  // ESC/CLEAR from any menu returns home
+  if (id === 'quit') { S.screen='home'; return; }
+
+  // Screen navigation
+  switch(id) {
+    case 'y=': S.screen='yedit';S.yEditIdx=0;S.inputBuf=S.yFuncs[0].expr;S.cursorPos=S.inputBuf.length; return;
+    case 'window': if(S.screen!=='window'){S.screen='window';S.winFieldIdx=0;S.inputBuf=String(S.win.Xmin);S.cursorPos=S.inputBuf.length;} return;
+    case 'zoom': S.screen='zoom';S.menuIdx=0; return;
+    case 'trace': startTrace(); return;
+    case 'graph': S.screen='graph'; return;
+    case 'table': S.screen='table';S.tableStart=0; return;
+    case 'tblset': S.screen='tblset';S.winFieldIdx=0;S.inputBuf=String(S.tblStart);S.cursorPos=S.inputBuf.length; return;
+    case 'format': S.screen='format';S.menuIdx=0; return;
+    case 'statplot': S.screen='statplot';S.menuIdx=0; return;
+    case 'math': S.screen='math';S.menuIdx=0;S.menuSub=0; return;
+    case 'apps': S.screen='apps';S.menuIdx=0; return;
+    case 'prgm': S.screen='prgm';S.menuIdx=0; return;
+    case 'vars': S.screen='vars';S.menuIdx=0; return;
+    case 'stat': S.screen='stat';S.menuIdx=0; return;
+    case 'matrix': S.screen='vars';S.menuIdx=0; return;
+    case 'catalog': S.screen='home'; insertText(''); return; // stub
+    case 'mem_menu': S.screen='home'; return;
+    case 'calc_menu':
+      if (S.screen==='graph'||S.screen==='trace') { S.screen='calc_menu';S.menuIdx=0; }
+      else { S.screen='calc_menu';S.menuIdx=0; }
+      return;
+  }
+
+  if (id==='mode') { S.screen='mode';S.menuIdx=0; return; }
+  if (id==='on') { S.screen='home';S.inputBuf='';S.cursorPos=0; return; }
+
+  switch(S.screen) {
+    case 'home': handleHome(id); return;
+    case 'yedit': handleYEdit(id); return;
+    case 'window': handleWindow(id); return;
+    case 'graph': handleGraph(id); return;
+    case 'trace': handleTrace(id); return;
+    case 'table': handleTableNav(id); return;
+    case 'tblset': handleTblSet(id); return;
+    case 'zoom': handleZoomMenu(id); return;
+    case 'math': handleMathMenu(id); return;
+    case 'mode': handleModeMenu(id); return;
+    case 'apps': handleAppsMenu(id); return;
+    case 'vars': handleVarsMenu(id); return;
+    case 'calc_menu': handleCalcMenuSelect(id); return;
+    case 'calc_input': handleCalcInput(id); return;
+    case 'solver': handleSolverInput(id); return;
+    default: handleMenuGeneric(id); return;
+  }
+}
+
+function handleHome(id) {
+  switch(id) {
+    case 'enter':
+      if (S.inputBuf.trim()) {
+        try {
+          const result = evaluate(S.inputBuf);
+          const display = (typeof result==='string')?result:fmtNum(result);
+          S.history.push({expr:S.inputBuf, result:display});
+          S.entryHistory.push(S.inputBuf);
+          S.entryIdx = -1;
+        } catch(e) {
+          S.history.push({expr:S.inputBuf, result:'ERR:SYNTAX'});
+        }
+        S.inputBuf=''; S.cursorPos=0;
+      }
+      return;
+    case 'clear':
+      if (S.inputBuf){S.inputBuf='';S.cursorPos=0;}
+      else {S.history=[];}
+      return;
+    case 'del':
+      if (S.cursorPos>0){
+        // Check if we need to delete a multi-char token
+        const before = S.inputBuf.slice(0,S.cursorPos);
+        let delLen = 1;
+        const multiTokens = ['sin⁻¹(','cos⁻¹(','tan⁻¹(','sin(','cos(','tan(','ln(','log(','10^(','e^(','√(','³√(','ˣ√(','abs(','Ans','►Frac','►Dec','logBASE(','nDeriv(','fnInt(','solve(','fMin(','fMax(','randInt(','randNorm('];
+        for (const tk of multiTokens) {
+          if (before.endsWith(tk)) { delLen=tk.length; break; }
+        }
+        S.inputBuf=S.inputBuf.slice(0,S.cursorPos-delLen)+S.inputBuf.slice(S.cursorPos);
+        S.cursorPos-=delLen;
+      }
+      return;
+    case 'ins': S.insertMode=!S.insertMode; return;
+    case 'left': if(S.cursorPos>0)S.cursorPos--; return;
+    case 'right': if(S.cursorPos<S.inputBuf.length)S.cursorPos++; return;
+    case 'up':
+      if (S.entryHistory.length>0){
+        if (S.entryIdx<0) S.entryIdx=S.entryHistory.length;
+        if (S.entryIdx>0){S.entryIdx--;S.inputBuf=S.entryHistory[S.entryIdx];S.cursorPos=S.inputBuf.length;}
+      }
+      return;
+    case 'down':
+      if (S.entryIdx>=0){
+        S.entryIdx++;
+        if (S.entryIdx>=S.entryHistory.length){S.entryIdx=-1;S.inputBuf='';}
+        else {S.inputBuf=S.entryHistory[S.entryIdx];}
+        S.cursorPos=S.inputBuf.length;
+      }
+      return;
+    case 'entry':
+      if (S.entryHistory.length){S.inputBuf=S.entryHistory[S.entryHistory.length-1];S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'ans_val': insertText('Ans'); return;
+    case 'sto': insertText('→'); return;
+    case 'rcl': return;
+    default:
+      const text = keyToText(id);
+      if (text!==null) insertText(text);
+      return;
+  }
+}
+
+function handleYEdit(id) {
+  const yf = S.yFuncs[S.yEditIdx];
+  switch(id) {
+    case 'enter':
+      yf.expr = S.inputBuf;
+      if (S.yEditIdx<5){S.yEditIdx++;S.inputBuf=S.yFuncs[S.yEditIdx].expr;S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'clear':
+      if (S.inputBuf){S.inputBuf='';S.cursorPos=0;yf.expr='';}
+      else {S.screen='home';}
+      return;
+    case 'del':
+      if (S.cursorPos>0){S.inputBuf=S.inputBuf.slice(0,S.cursorPos-1)+S.inputBuf.slice(S.cursorPos);S.cursorPos--;yf.expr=S.inputBuf;}
+      return;
+    case 'up':
+      yf.expr=S.inputBuf;
+      if (S.yEditIdx>0){S.yEditIdx--;S.inputBuf=S.yFuncs[S.yEditIdx].expr;S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'down':
+      yf.expr=S.inputBuf;
+      if (S.yEditIdx<5){S.yEditIdx++;S.inputBuf=S.yFuncs[S.yEditIdx].expr;S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'left': if(S.cursorPos>0)S.cursorPos--; return;
+    case 'right': if(S.cursorPos<S.inputBuf.length)S.cursorPos++; return;
+    default:
+      const text = keyToText(id);
+      if (text!==null){insertText(text);yf.expr=S.inputBuf;}
+      return;
+  }
+}
+
+function handleWindow(id) {
+  const fields = ['Xmin','Xmax','Xscl','Ymin','Ymax','Yscl','Xres'];
+  switch(id) {
+    case 'enter':
+      {const val=parseFloat(S.inputBuf);if(!isNaN(val))S.win[fields[S.winFieldIdx]]=val;
+      if(S.winFieldIdx<fields.length-1){S.winFieldIdx++;S.inputBuf=String(S.win[fields[S.winFieldIdx]]);S.cursorPos=S.inputBuf.length;}}
+      return;
+    case 'up':
+      {const v=parseFloat(S.inputBuf);if(!isNaN(v))S.win[fields[S.winFieldIdx]]=v;
+      if(S.winFieldIdx>0){S.winFieldIdx--;S.inputBuf=String(S.win[fields[S.winFieldIdx]]);S.cursorPos=S.inputBuf.length;}}
+      return;
+    case 'down':
+      {const v=parseFloat(S.inputBuf);if(!isNaN(v))S.win[fields[S.winFieldIdx]]=v;
+      if(S.winFieldIdx<fields.length-1){S.winFieldIdx++;S.inputBuf=String(S.win[fields[S.winFieldIdx]]);S.cursorPos=S.inputBuf.length;}}
+      return;
+    case 'clear':
+      if(S.inputBuf){S.inputBuf='';S.cursorPos=0;}else{S.screen='home';}
+      return;
+    case 'del':
+      if(S.cursorPos>0){S.inputBuf=S.inputBuf.slice(0,S.cursorPos-1)+S.inputBuf.slice(S.cursorPos);S.cursorPos--;}
+      return;
+    default:
+      const t=keyToTextNum(id);if(t!==null)insertText(t);
+      return;
+  }
+}
+
+function handleTblSet(id) {
+  const fields = [{key:'tblStart'},{key:'tblStep'}];
+  switch(id) {
+    case 'enter':
+      {const val=parseFloat(S.inputBuf);if(!isNaN(val))S[fields[S.winFieldIdx].key]=val;
+      if(S.winFieldIdx<1){S.winFieldIdx++;S.inputBuf=String(S[fields[1].key]);S.cursorPos=S.inputBuf.length;}}
+      return;
+    case 'up':
+      if(S.winFieldIdx>0){const v=parseFloat(S.inputBuf);if(!isNaN(v))S[fields[S.winFieldIdx].key]=v;S.winFieldIdx--;S.inputBuf=String(S[fields[0].key]);S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'down':
+      if(S.winFieldIdx<1){const v=parseFloat(S.inputBuf);if(!isNaN(v))S[fields[S.winFieldIdx].key]=v;S.winFieldIdx++;S.inputBuf=String(S[fields[1].key]);S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'clear': if(S.inputBuf){S.inputBuf='';S.cursorPos=0;}else{S.screen='home';} return;
+    case 'del': if(S.cursorPos>0){S.inputBuf=S.inputBuf.slice(0,S.cursorPos-1)+S.inputBuf.slice(S.cursorPos);S.cursorPos--;} return;
+    default: const t=keyToTextNum(id);if(t!==null)insertText(t); return;
+  }
+}
+
+function handleGraph(id) {
+  const pan=(S.win.Xmax-S.win.Xmin)*0.1;
+  const panY=(S.win.Ymax-S.win.Ymin)*0.1;
+  switch(id) {
+    case 'left': S.win.Xmin-=pan;S.win.Xmax-=pan; return;
+    case 'right': S.win.Xmin+=pan;S.win.Xmax+=pan; return;
+    case 'up': S.win.Ymin+=panY;S.win.Ymax+=panY; return;
+    case 'down': S.win.Ymin-=panY;S.win.Ymax-=panY; return;
+    case 'clear': S.screen='home'; return;
+  }
+}
+
+function startTrace() {
+  S.screen='trace';
+  S.traceX=(S.win.Xmin+S.win.Xmax)/2;
+  S.traceFunc=S.yFuncs.findIndex(y=>y.active&&y.expr);
+  if(S.traceFunc<0)S.traceFunc=0;
+}
+
+function handleTrace(id) {
+  const step=(S.win.Xmax-S.win.Xmin)/100;
+  switch(id) {
+    case 'left': S.traceX-=step; return;
+    case 'right': S.traceX+=step; return;
+    case 'up':
+      for(let i=S.traceFunc+1;i<6;i++){if(S.yFuncs[i].active&&S.yFuncs[i].expr){S.traceFunc=i;return;}}
+      return;
+    case 'down':
+      for(let i=S.traceFunc-1;i>=0;i--){if(S.yFuncs[i].active&&S.yFuncs[i].expr){S.traceFunc=i;return;}}
+      return;
+    case 'clear': S.screen='home'; return;
+    case 'enter': S.screen='graph'; return;
+  }
+}
+
+function handleTableNav(id) {
+  switch(id) {
+    case 'up': if(S.tableStart>-100)S.tableStart--; return;
+    case 'down': S.tableStart++; return;
+    case 'clear': S.screen='home'; return;
+  }
+}
+
+function handleZoomMenu(id) {
+  const maxIdx = zoomItems.length-1;
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(maxIdx,S.menuIdx+1); return;
+    case 'clear': S.screen='home'; return;
+    case 'enter': applyZoom(S.menuIdx); return;
+    case '1':case'2':case'3':case'4':case'5':case'6':case'7':case'8':case'9':case'0':
+      applyZoom(id==='0'?9:parseInt(id)-1); return;
+  }
+}
+
+function applyZoom(idx) {
+  switch(idx) {
+    case 0: S.screen='graph'; return; // ZBox stub
+    case 1: { // Zoom In
+      const cx=(S.win.Xmin+S.win.Xmax)/2,cy=(S.win.Ymin+S.win.Ymax)/2;
+      const hw=(S.win.Xmax-S.win.Xmin)/4,hh=(S.win.Ymax-S.win.Ymin)/4;
+      S.win.Xmin=cx-hw;S.win.Xmax=cx+hw;S.win.Ymin=cy-hh;S.win.Ymax=cy+hh;
+      S.screen='graph'; return;
+    }
+    case 2: { // Zoom Out
+      const cx=(S.win.Xmin+S.win.Xmax)/2,cy=(S.win.Ymin+S.win.Ymax)/2;
+      const hw=(S.win.Xmax-S.win.Xmin),hh=(S.win.Ymax-S.win.Ymin);
+      S.win.Xmin=cx-hw;S.win.Xmax=cx+hw;S.win.Ymin=cy-hh;S.win.Ymax=cy+hh;
+      S.screen='graph'; return;
+    }
+    case 5: // ZStandard
+      S.win={Xmin:-10,Xmax:10,Xscl:1,Ymin:-10,Ymax:10,Yscl:1,Xres:1};
+      S.screen='graph'; return;
+    case 6: // ZTrig
+      S.win={Xmin:-2*Math.PI,Xmax:2*Math.PI,Xscl:Math.PI/2,Ymin:-4,Ymax:4,Yscl:1,Xres:1};
+      S.screen='graph'; return;
+    case 9: { // ZoomFit
+      let ymin=Infinity,ymax=-Infinity;
+      const step=(S.win.Xmax-S.win.Xmin)/200;
+      for(const yf of S.yFuncs){
+        if(!yf.active||!yf.expr)continue;
+        for(let x=S.win.Xmin;x<=S.win.Xmax;x+=step){
+          try{const y=evalExpr(yf.expr,x);if(isFinite(y)){ymin=Math.min(ymin,y);ymax=Math.max(ymax,y);}}catch(e){}
+        }
+      }
+      if(isFinite(ymin)&&isFinite(ymax)){const pad=(ymax-ymin)*0.1||1;S.win.Ymin=ymin-pad;S.win.Ymax=ymax+pad;}
+      S.screen='graph'; return;
+    }
+    default: S.screen='graph'; return;
+  }
+}
+
+function handleMathMenu(id) {
+  const list = mathMenuItems[S.menuSub]||mathMenuItems[0];
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(list.length-1,S.menuIdx+1); return;
+    case 'left': S.menuSub=Math.max(0,S.menuSub-1);S.menuIdx=0; return;
+    case 'right': S.menuSub=Math.min(3,S.menuSub+1);S.menuIdx=0; return;
+    case 'clear': S.screen='home'; return;
+    case 'enter':
+      selectMathItem(); return;
+    default:
+      // number key direct select
+      if (/^[0-9]$/.test(id)) {
+        const idx = id==='0'?9:parseInt(id)-1;
+        if (idx<list.length) { S.menuIdx=idx; selectMathItem(); }
+      }
+      return;
+  }
+}
+
+function selectMathItem() {
+  const items = [
+    ['►Frac','►Dec','³(','³√(','ˣ√(','fMin(','fMax(','nDeriv(','fnInt(','Σ(','logBASE(','solve('],
+    ['abs(','round(','iPart(','fPart(','int(','min(','max(','lcm(','gcd('],
+    ['conj(','real(','imag(','angle(','abs('],
+    ['nPr','nCr','!','randInt(','randNorm(','randBin(']
+  ];
+  const sel = (items[S.menuSub]||[])[S.menuIdx];
+  if (sel) {
+    S.screen='home';
+    insertText(sel);
+  }
+}
+
+function handleModeMenu(id) {
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(7,S.menuIdx+1); return;
+    case 'enter':
+      if (S.menuIdx===2) S.angleMode=S.angleMode==='RAD'?'DEG':'RAD';
+      S.screen='home'; return;
+    case 'left':
+      if (S.menuIdx===2) S.angleMode='RAD';
+      return;
+    case 'right':
+      if (S.menuIdx===2) S.angleMode='DEG';
+      return;
+    case 'clear': S.screen='home'; return;
+  }
+}
+
+function handleAppsMenu(id) {
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(3,S.menuIdx+1); return;
+    case 'enter':
+    case '1':
+      if (S.menuIdx===0||id==='1') {
+        // Equation Solver
+        S.screen='solver'; S.solverField=0; S.solverExpr=S.solverExpr||'';
+        S.inputBuf=S.solverExpr; S.cursorPos=S.inputBuf.length; S.solverResult=undefined;
+        return;
+      }
+      S.screen='home'; return;
+    case 'clear': S.screen='home'; return;
+    default: handleMenuGeneric(id); return;
+  }
+}
+
+function handleVarsMenu(id) {
+  const keys = Object.keys(S.vars);
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(keys.length-1,S.menuIdx+1); return;
+    case 'enter':
+      S.screen='home';
+      insertText(keys[S.menuIdx]);
+      return;
+    case 'clear': S.screen='home'; return;
+  }
+}
+
+function handleCalcMenuSelect(id) {
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx=Math.min(calcMenuItems.length-1,S.menuIdx+1); return;
+    case 'clear': S.screen='graph'; return;
+    case 'enter':
+    case '1':case'2':case'3':case'4':case'5':case'6':case'7':
+      const idx = id==='enter'?S.menuIdx:(parseInt(id)-1);
+      startCalcMode(idx);
+      return;
+  }
+}
+
+function startCalcMode(idx) {
+  S.traceFunc = S.yFuncs.findIndex(y=>y.active&&y.expr);
+  if (S.traceFunc<0) { S.screen='graph'; return; }
+  S.inputBuf=''; S.cursorPos=0; S.calcBounds={};
+  switch(idx) {
+    case 0: S.calcStep='value'; break;
+    case 1: S.calcStep='zero_lb'; break;
+    case 2: S.calcStep='min_lb'; break;
+    case 3: S.calcStep='max_lb'; break;
+    case 4: S.calcStep='intersect'; S.screen='graph'; return; // stub
+    case 5: S.calcStep='dydx'; break;
+    case 6: S.calcStep='int_lb'; break;
+    default: S.screen='graph'; return;
+  }
+  S.screen='calc_input';
+}
+
+function handleCalcInput(id) {
+  switch(id) {
+    case 'clear': S.screen='graph'; return;
+    case 'del':
+      if(S.cursorPos>0){S.inputBuf=S.inputBuf.slice(0,S.cursorPos-1)+S.inputBuf.slice(S.cursorPos);S.cursorPos--;}
+      return;
+    case 'left': if(S.cursorPos>0)S.cursorPos--; return;
+    case 'right': if(S.cursorPos<S.inputBuf.length)S.cursorPos++; return;
+    case 'enter':
+      finishCalcStep();
+      return;
+    case 'neg': insertText('-'); return;
+    default:
+      const t=keyToTextNum(id);
+      if(t!==null)insertText(t);
+      return;
+  }
+}
+
+function finishCalcStep() {
+  const xv = parseFloat(S.inputBuf);
+  const fi = S.traceFunc;
+  const expr = S.yFuncs[fi]?S.yFuncs[fi].expr:'';
+  if (!expr) { S.screen='graph'; return; }
+
+  switch(S.calcStep) {
+    case 'value':
+      if (isFinite(xv)) {
+        try {
+          const yv = evalExpr(expr, xv);
+          S.history.push({expr:`value Y${fi+1} at X=${fmtNum(xv)}`, result:fmtNum(yv)});
+          S.ans = yv;
+        } catch(e) { S.history.push({expr:'value',result:'ERR'}); }
+      }
+      S.screen='home'; return;
+
+    case 'zero_lb':
+      S.calcBounds.lb = isFinite(xv)?xv:S.win.Xmin;
+      S.calcStep='zero_rb'; S.inputBuf=''; S.cursorPos=0; return;
+    case 'zero_rb':
+      S.calcBounds.rb = isFinite(xv)?xv:S.win.Xmax;
+      S.calcStep='zero_guess'; S.inputBuf=''; S.cursorPos=0; return;
+    case 'zero_guess': {
+      const guess = isFinite(xv)?xv:(S.calcBounds.lb+S.calcBounds.rb)/2;
+      const root = findZero(expr, S.calcBounds.lb, S.calcBounds.rb, guess);
+      S.history.push({expr:`zero Y${fi+1}`, result:isFinite(root)?`X=${fmtNum(root)}`:'ERR:NO SIGN CHG'});
+      if (isFinite(root)) S.ans=root;
+      S.screen='home'; return;
+    }
+
+    case 'min_lb':
+      S.calcBounds.lb=isFinite(xv)?xv:S.win.Xmin;
+      S.calcStep='min_rb';S.inputBuf='';S.cursorPos=0; return;
+    case 'min_rb':
+      S.calcBounds.rb=isFinite(xv)?xv:S.win.Xmax;
+      S.calcStep='min_guess';S.inputBuf='';S.cursorPos=0; return;
+    case 'min_guess': {
+      const result = findExtremum(expr, S.calcBounds.lb, S.calcBounds.rb, 'min');
+      S.history.push({expr:`minimum Y${fi+1}`, result:`X=${fmtNum(result.x)} Y=${fmtNum(result.y)}`});
+      S.ans=result.y; S.screen='home'; return;
+    }
+
+    case 'max_lb':
+      S.calcBounds.lb=isFinite(xv)?xv:S.win.Xmin;
+      S.calcStep='max_rb';S.inputBuf='';S.cursorPos=0; return;
+    case 'max_rb':
+      S.calcBounds.rb=isFinite(xv)?xv:S.win.Xmax;
+      S.calcStep='max_guess';S.inputBuf='';S.cursorPos=0; return;
+    case 'max_guess': {
+      const result = findExtremum(expr, S.calcBounds.lb, S.calcBounds.rb, 'max');
+      S.history.push({expr:`maximum Y${fi+1}`, result:`X=${fmtNum(result.x)} Y=${fmtNum(result.y)}`});
+      S.ans=result.y; S.screen='home'; return;
+    }
+
+    case 'dydx':
+      if (isFinite(xv)) {
+        const h=1e-6;
+        const dy=(evalExpr(expr,xv+h)-evalExpr(expr,xv-h))/(2*h);
+        S.history.push({expr:`dy/dx Y${fi+1} at X=${fmtNum(xv)}`, result:fmtNum(dy)});
+        S.ans=dy;
+      }
+      S.screen='home'; return;
+
+    case 'int_lb':
+      S.calcBounds.lb=isFinite(xv)?xv:S.win.Xmin;
+      S.calcStep='int_ub';S.inputBuf='';S.cursorPos=0; return;
+    case 'int_ub': {
+      const ub=isFinite(xv)?xv:S.win.Xmax;
+      const integral = numIntegrate(expr, S.calcBounds.lb, ub);
+      S.history.push({expr:`∫Y${fi+1} [${fmtNum(S.calcBounds.lb)},${fmtNum(ub)}]`, result:fmtNum(integral)});
+      S.ans=integral; S.screen='home'; return;
+    }
+
+    default: S.screen='graph'; return;
+  }
+}
+
+function findZero(expr, lb, rb, guess) {
+  // Bisection + Newton hybrid
+  let a=lb, b=rb;
+  let fa, fb;
+  try { fa=evalExpr(expr,a); fb=evalExpr(expr,b); } catch(e) { return NaN; }
+  // If same sign, try Newton from guess
+  if (fa*fb>0) {
+    let x=guess;
+    for(let i=0;i<200;i++){
+      const fx=evalExpr(expr,x);
+      if(Math.abs(fx)<1e-12) return x;
+      const h=1e-8;
+      const dfx=(evalExpr(expr,x+h)-evalExpr(expr,x-h))/(2*h);
+      if(Math.abs(dfx)<1e-15) break;
+      x=x-fx/dfx;
+    }
+    const fx=evalExpr(expr,x);
+    return Math.abs(fx)<1e-6?x:NaN;
+  }
+  // Bisection
+  for(let i=0;i<100;i++){
+    const m=(a+b)/2;
+    const fm=evalExpr(expr,m);
+    if(Math.abs(fm)<1e-12) return m;
+    if(fa*fm<0){b=m;fb=fm;}else{a=m;fa=fm;}
+  }
+  return (a+b)/2;
+}
+
+function findExtremum(expr, lb, rb, type) {
+  // Golden section search
+  const gr=(Math.sqrt(5)+1)/2;
+  let a=lb,b=rb;
+  let c=b-(b-a)/gr, d=a+(b-a)/gr;
+  for(let i=0;i<100;i++){
+    const fc=evalExpr(expr,c), fd=evalExpr(expr,d);
+    if(type==='min'?fc<fd:fc>fd){b=d;}else{a=c;}
+    c=b-(b-a)/gr;d=a+(b-a)/gr;
+  }
+  const x=(a+b)/2;
+  return {x, y:evalExpr(expr,x)};
+}
+
+function numIntegrate(expr, a, b) {
+  // Simpson's rule
+  const n=1000;
+  const h=(b-a)/n;
+  let sum=evalExpr(expr,a)+evalExpr(expr,b);
+  for(let i=1;i<n;i++){
+    const x=a+i*h;
+    sum+=evalExpr(expr,x)*(i%2===0?2:4);
+  }
+  return sum*h/3;
+}
+
+function handleSolverInput(id) {
+  switch(id) {
+    case 'clear':
+      if(S.inputBuf){S.inputBuf='';S.cursorPos=0;}else{S.screen='home';}
+      return;
+    case 'del':
+      if(S.cursorPos>0){S.inputBuf=S.inputBuf.slice(0,S.cursorPos-1)+S.inputBuf.slice(S.cursorPos);S.cursorPos--;}
+      return;
+    case 'left': if(S.cursorPos>0)S.cursorPos--; return;
+    case 'right': if(S.cursorPos<S.inputBuf.length)S.cursorPos++; return;
+    case 'up':
+      if(S.solverField===1){
+        S.solverGuess=S.inputBuf;S.solverField=0;S.inputBuf=S.solverExpr;S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'down':
+      if(S.solverField===0){
+        S.solverExpr=S.inputBuf;S.solverField=1;S.inputBuf=S.solverGuess;S.cursorPos=S.inputBuf.length;}
+      return;
+    case 'enter':
+      if(S.solverField===0){
+        S.solverExpr=S.inputBuf;S.solverField=1;S.inputBuf=S.solverGuess;S.cursorPos=S.inputBuf.length;
+      } else {
+        S.solverGuess=S.inputBuf;
+        // Solve: 0 = solverExpr
+        const guess = parseFloat(S.solverGuess)||0;
+        let x=guess;
+        for(let i=0;i<200;i++){
+          const oldX=S.vars[S.solverVar]; S.vars[S.solverVar]=x;
+          let fx;
+          try{fx=evalExpr(S.solverExpr,S.solverVar==='X'?x:undefined);}catch(e){S.vars[S.solverVar]=oldX;break;}
+          S.vars[S.solverVar]=oldX;
+          if(Math.abs(fx)<1e-12){break;}
+          const h=1e-8;
+          S.vars[S.solverVar]=x+h;
+          const fx2=evalExpr(S.solverExpr,S.solverVar==='X'?x+h:undefined);
+          S.vars[S.solverVar]=x-h;
+          const fx3=evalExpr(S.solverExpr,S.solverVar==='X'?x-h:undefined);
+          S.vars[S.solverVar]=oldX;
+          const dfx=(fx2-fx3)/(2*h);
+          if(Math.abs(dfx)<1e-15)break;
+          const nx=x-fx/dfx;
+          if(Math.abs(nx-x)<1e-12){x=nx;break;}
+          x=nx;
+        }
+        S.solverResult=x;
+        S.vars[S.solverVar]=x;
+      }
+      return;
+    default:
+      const text = keyToText(id);
+      if(text!==null)insertText(text);
+      if(S.solverField===0)S.solverExpr=S.inputBuf;
+      else S.solverGuess=S.inputBuf;
+      return;
+  }
+}
+
+function handleMenuGeneric(id) {
+  switch(id) {
+    case 'up': S.menuIdx=Math.max(0,S.menuIdx-1); return;
+    case 'down': S.menuIdx++; return;
+    case 'enter': S.screen='home'; return;
+    case 'clear': S.screen='home'; return;
+  }
+}
+
+function keyToText(id) {
+  const map = {
+    '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',
+    '.':'.', '+':'+', '−':'−', '×':'×', '÷':'÷', '^':'^',
+    '(':'(', ')':')', 'neg':'⁻',
+    'sin':'sin(','cos':'cos(','tan':'tan(',
+    'asin':'sin⁻¹(','acos':'cos⁻¹(','atan':'tan⁻¹(',
+    'ln':'ln(','log':'log(','tenx':'10^(','ex':'e^(',
+    'x2':'²','x-1':'⁻¹','sqrt':'√(',
+    'pi':'π','euler':'e',
+    'xvar':'X',',':',',
+    'ee':'ᴇ','imag':'i',
+    '{':'{','}':'}','[':'[',']':']',
+    'ans_val':'Ans',
+  };
+  return map[id] ?? null;
+}
+
+function keyToTextNum(id) {
+  const map={'0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9','.':'.','neg':'-','−':'-'};
+  return map[id] ?? null;
+}
+
+function insertText(t) {
+  S.inputBuf=S.inputBuf.slice(0,S.cursorPos)+t+S.inputBuf.slice(S.cursorPos);
+  S.cursorPos+=t.length;
+}
+
+// ====== HELPERS ======
+function escHtml(s){return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');}
+function padR(s,n){s=String(s);while(s.length<n)s+=' ';return s;}
+function fmtNum(n){
+  if(typeof n==='string')return n;
+  if(!isFinite(n))return isNaN(n)?'ERR':'∞';
+  if(Math.abs(n)>1e10||(Math.abs(n)<1e-4&&n!==0))return n.toExponential(6);
+  const s=parseFloat(n.toPrecision(10));
+  return String(s);
+}
+
+// ====== BUILD KEYPAD ======
+function buildKeypad() {
+  const kp = document.getElementById('keypad');
+  const rows = [
+    {keys:[
+      ['y=','Y=','k-graph','STAT PLOT'],
+      ['window','WINDOW','k-graph','TBL SET'],
+      ['zoom','ZOOM','k-graph','FORMAT'],
+      ['trace','TRACE','k-graph','CALC'],
+      ['graph','GRAPH','k-graph','TABLE'],
+    ]},
+    {type:'arrows'},
+    {keys:[
+      ['2nd','2nd','k-2nd',''],
+      ['mode','MODE','k-std','QUIT'],
+      ['del','DEL','k-std','INS'],
+    ]},
+    {keys:[
+      ['xvar','X,T,θ,n','k-std','LINK'],
+      ['stat','STAT','k-std','LIST'],
+    ]},
+    {keys:[
+      ['math','MATH','k-std','TEST'],
+      ['apps','APPS','k-std','ANGLE'],
+      ['prgm','PRGM','k-std','DRAW'],
+      ['vars','VARS','k-std','DISTR'],
+      ['clear','CLEAR','k-clear',''],
+    ]},
+    {keys:[
+      ['x-1','x⁻¹','k-std','MATRX'],
+      ['sin','SIN','k-std','SIN⁻¹'],
+      ['cos','COS','k-std','COS⁻¹'],
+      ['tan','TAN','k-std','TAN⁻¹'],
+      ['^','^','k-std','π'],
+    ]},
+    {keys:[
+      ['x2','x²','k-std','√'],
+      [',',',','k-std','EE'],
+      ['(','(','k-std','{'],
+      [')',')','k-std','}'],
+      ['÷','÷','k-op','e'],
+    ]},
+    {keys:[
+      ['log','LOG','k-std','10ˣ'],
+      ['7','7','k-num',''],
+      ['8','8','k-num',''],
+      ['9','9','k-num',''],
+      ['×','×','k-op','['],
+    ]},
+    {keys:[
+      ['ln','LN','k-std','eˣ'],
+      ['4','4','k-num',''],
+      ['5','5','k-num',''],
+      ['6','6','k-num',''],
+      ['−','−','k-op',']'],
+    ]},
+    {keys:[
+      ['sto','STO→','k-std','RCL'],
+      ['1','1','k-num',''],
+      ['2','2','k-num',''],
+      ['3','3','k-num',''],
+      ['+','+','k-op','MEM'],
+    ]},
+    {type:'bottom'},
+  ];
+
+  rows.forEach(row => {
+    if (row.type==='arrows') {
+      const div=document.createElement('div');div.id='arrow-cluster';
+      div.innerHTML=`<div id="arrow-grid">
+        <div class="arrow-blank"></div><div class="arrow-btn" data-key="up">▲</div><div class="arrow-blank"></div>
+        <div class="arrow-btn" data-key="left">◄</div><div class="arrow-blank"></div><div class="arrow-btn" data-key="right">►</div>
+        <div class="arrow-blank"></div><div class="arrow-btn" data-key="down">▼</div><div class="arrow-blank"></div>
+      </div>`;
+      kp.appendChild(div); return;
+    }
+    if (row.type==='bottom') {
+      const div=document.createElement('div');div.className='key-row';
+      [['on','ON','k-on','OFF'],['0','0','k-num','CATLOG'],['.','.',  'k-num','i'],['neg','(−)','k-num','ANS']].forEach(k=>div.appendChild(makeKey(...k)));
+      const ek=document.createElement('div');ek.className='key k-enter';
+      ek.innerHTML=`<div class="key-2nd">ENTRY</div><div class="key-btn" data-key="enter">ENTER</div>`;
+      div.appendChild(ek); kp.appendChild(div); return;
+    }
+    const div=document.createElement('div');div.className='key-row';
+    row.keys.forEach(k=>div.appendChild(makeKey(...k)));
+    kp.appendChild(div);
+  });
+
+  kp.addEventListener('mousedown', e => {
+    const btn=e.target.closest('[data-key]');
+    if(btn){btn.classList.add('active');handleKey(btn.dataset.key);setTimeout(()=>btn.classList.remove('active'),100);}
+  });
+}
+
+function makeKey(id, label, cls, sec) {
+  const div=document.createElement('div');div.className=`key ${cls}`;
+  div.innerHTML=`<div class="key-2nd">${escHtml(sec||'')}</div><div class="key-btn" data-key="${id}">${escHtml(label)}</div>`;
+  return div;
+}
+
+// ====== KEYBOARD INPUT ======
+document.addEventListener('keydown', e => {
+  const map = {
+    '0':'0','1':'1','2':'2','3':'3','4':'4','5':'5','6':'6','7':'7','8':'8','9':'9',
+    '+':'+','-':'−','*':'×','/':'÷',
+    'Enter':'enter','Backspace':'del','Delete':'clear','Escape':'clear',
+    'ArrowUp':'up','ArrowDown':'down','ArrowLeft':'left','ArrowRight':'right',
+    '(':'(',')':')','.':'.', '^':'^',',':',',
+  };
+  const k=map[e.key];
+  if(k){e.preventDefault();handleKey(k);return;}
+  if(e.key==='s'){e.preventDefault();handleKey(S.secondActive?'asin':'sin');return;}
+  if(e.key==='c'&&!e.metaKey&&!e.ctrlKey){e.preventDefault();handleKey(S.secondActive?'acos':'cos');return;}
+  if(e.key==='t'){e.preventDefault();handleKey(S.secondActive?'atan':'tan');return;}
+  if(e.key==='l'){e.preventDefault();handleKey('ln');return;}
+  if(e.key==='g'){e.preventDefault();handleKey('log');return;}
+  if(e.key==='x'||e.key==='X'){e.preventDefault();handleKey('xvar');return;}
+  if(e.key==='p'){e.preventDefault();handleKey('pi');return;}
+  if(e.key==='e'){e.preventDefault();handleKey('euler');return;}
+  if(e.key==='`'){e.preventDefault();handleKey('2nd');return;}
+  const fmap={'F1':'y=','F2':'window','F3':'zoom','F4':'trace','F5':'graph'};
+  if(fmap[e.key]){e.preventDefault();handleKey(fmap[e.key]);return;}
+});
+
+// ====== INIT ======
+buildKeypad();
+render();
+</script>
+</body>
+</html>
