@@ -1,10 +1,4 @@
 // evaluator.cpp — Recursive descent expression parser
-// Grammar:
-//   expr   = term (('+' | '-') term)*
-//   term   = factor (('*' | '/') factor)*
-//   factor = ['-'] (number | '(' expr ')')
-//   number = digit+ ['.' digit+]
-
 #include "evaluator.h"
 #include <math.h>
 
@@ -42,8 +36,7 @@ double Evaluator::parseExpr() {
     while (*_p == '+' || *_p == '-') {
         char op = *_p++;
         double right = parseTerm();
-        if (op == '+') val += right;
-        else           val -= right;
+        if (op == '+') val += right; else val -= right;
         skipSpaces();
     }
     return val;
@@ -55,8 +48,7 @@ double Evaluator::parseTerm() {
     while (*_p == '*' || *_p == '/') {
         char op = *_p++;
         double right = parseFactor();
-        if (op == '*') val *= right;
-        else           val /= right;
+        if (op == '*') val *= right; else val /= right;
         skipSpaces();
     }
     return val;
@@ -64,44 +56,28 @@ double Evaluator::parseTerm() {
 
 double Evaluator::parseFactor() {
     skipSpaces();
-
-    // Unary minus
     bool neg = false;
-    if (*_p == '-') {
-        neg = true;
-        _p++;
-    }
+    if (*_p == '-') { neg = true; _p++; }
 
     double val;
-
     if (*_p == '(') {
-        _p++;  // skip '('
+        _p++;
         val = parseExpr();
         skipSpaces();
-        if (*_p == ')') _p++;  // skip ')'
+        if (*_p == ')') _p++;
     } else {
         val = parseNumber();
     }
-
     return neg ? -val : val;
 }
 
 double Evaluator::parseNumber() {
     skipSpaces();
     const char* start = _p;
-
     while (*_p >= '0' && *_p <= '9') _p++;
-    if (*_p == '.') {
-        _p++;
-        while (*_p >= '0' && *_p <= '9') _p++;
-    }
+    if (*_p == '.') { _p++; while (*_p >= '0' && *_p <= '9') _p++; }
+    if (_p == start) return NAN;
 
-    if (_p == start) {
-        // No number found — return NaN to signal error
-        return NAN;
-    }
-
-    // Convert substring to double
     char buf[32];
     int len = _p - start;
     if (len > 30) len = 30;
