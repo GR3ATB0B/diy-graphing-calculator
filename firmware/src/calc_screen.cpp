@@ -1,38 +1,26 @@
-// calc_screen.cpp — TI-84 Plus CE style calculator screen
-// Input via CardKB: full ASCII keyboard, backspace=0x08, enter=0x0D, esc=0x1B
+// calc_screen.cpp — Calculator screen (direct drawing on ILI9341)
 #include "calc_screen.h"
+#include "config.h"
 
-static const int FKEY_H = 16;
-static const int LINE_H = 14;
-static const int MARGIN_R = 6;
+static const int LINE_H = 16;
+static const int MARGIN = 6;
 
 void CalcScreen::handleInput(char key) {
     switch (key) {
         case 0x08:  // Backspace
-            if (_input.length() > 0) {
+            if (_input.length() > 0)
                 _input.remove(_input.length() - 1);
-            }
             break;
-
-        case 0x0D:  // Enter — evaluate
+        case 0x0D:  // Enter
             doEvaluate();
             break;
-
         case 0x1B:  // Escape — clear
-            if (_input.length() > 0) {
-                _input = "";
-            } else {
-                _lines.clear();
-            }
+            if (_input.length() > 0) _input = "";
+            else _lines.clear();
             break;
-
         default:
-            // Accept printable ASCII characters
-            if (key >= 0x20 && key <= 0x7E) {
-                if (_input.length() < 60) {
-                    _input += key;
-                }
-            }
+            if (key >= 0x20 && key <= 0x7E && _input.length() < 60)
+                _input += key;
             break;
     }
 }
@@ -40,14 +28,12 @@ void CalcScreen::handleInput(char key) {
 void CalcScreen::doEvaluate() {
     if (_input.length() == 0) return;
 
-    // Add expression line
     DisplayLine exprLine;
     exprLine.text = _input;
     exprLine.isExpr = true;
     exprLine.isError = false;
     _lines.push_back(exprLine);
 
-    // Evaluate
     EvalResult r = _eval.evaluate(_input);
     DisplayLine resultLine;
     resultLine.isExpr = false;
@@ -61,13 +47,10 @@ void CalcScreen::doEvaluate() {
         resultLine.isError = true;
     }
     _lines.push_back(resultLine);
-
     _input = "";
 
-    // Keep history manageable
-    while (_lines.size() > 200) {
+    while (_lines.size() > 200)
         _lines.erase(_lines.begin());
-    }
 }
 
 String CalcScreen::formatNumber(double v) {
@@ -76,7 +59,6 @@ String CalcScreen::formatNumber(double v) {
         snprintf(buf, sizeof(buf), "%.8e", v);
     } else {
         snprintf(buf, sizeof(buf), "%.10f", v);
-        // Strip trailing zeros
         char* dot = strchr(buf, '.');
         if (dot) {
             char* end = buf + strlen(buf) - 1;
@@ -87,95 +69,68 @@ String CalcScreen::formatNumber(double v) {
     return String(buf);
 }
 
-void CalcScreen::draw(TFT_eSprite& fb) {
-    // Update cursor blink
+void CalcScreen::draw(Adafruit_ILI9341& tft) {
     unsigned long now = millis();
     if (now - _lastBlink > 530) {
         _cursorVisible = !_cursorVisible;
         _lastBlink = now;
     }
 
-    fb.fillSprite(COL_BG);
-    drawStatusBar(fb);
-    drawMainArea(fb);
-    drawFkeyLabels(fb);
+    tft.fillScreen(COL_BG);
+    drawStatusBar(tft);
+    drawMainArea(tft);
 }
 
-void CalcScreen::drawStatusBar(TFT_eSprite& fb) {
-    fb.fillRect(0, 0, SCREEN_W, STATUS_BAR_H, COL_STATUS_BG);
-
-    // Battery icon
-    int bx = SCREEN_W - 28, by = 5;
-    fb.drawRect(bx, by, 18, 10, COL_DIM);
-    fb.fillRect(bx + 18, by + 3, 2, 4, COL_DIM);
-    fb.fillRect(bx + 2, by + 2, 12, 6, COL_ACCENT);
-
-    fb.setTextColor(COL_DIM);
-    fb.setTextSize(1);
-    fb.setTextDatum(ML_DATUM);
-    fb.drawString("CALC", 6, STATUS_BAR_H / 2);
+void CalcScreen::drawStatusBar(Adafruit_ILI9341& tft) {
+    tft.fillRect(0, 0, SCREEN_W, STATUS_BAR_H, COL_STATUS_BG);
+    tft.setTextColor(COL_DIM);
+    tft.setTextSize(1);
+    tft.setCursor(MARGIN, 6);
+    tft.print("CALC");
 }
 
-void CalcScreen::drawMainArea(TFT_eSprite& fb) {
+void CalcScreen::drawMainArea(Adafruit_ILI9341& tft) {
     int areaTop = STATUS_BAR_H + 2;
-    int areaBottom = SCREEN_H - FKEY_H - 2;
+    int areaBottom = SCREEN_H - 4;
 
-    fb.setTextSize(1);
+    // Calculate start position (bottom-align)
+    int totalLines = _lines.size() + 1;
+    int y = areaBottom - totalLines * LINE_H;
+    if (y < areaTop) y = areaTop;
 
-    // Count total lines (history + current input)
-    int totalLines = _lines.size() + 1; // +1 for current input
-    int startY = areaBottom - totalLines * LINE_H;
-    if (startY < areaTop) startY = areaTop;
+    tft.setTextSize(1);
 
-    int y = startY;
-
-    // Draw history lines
+    // History
     for (size_t i = 0; i < _lines.size(); i++) {
         if (y + LINE_H < areaTop) { y += LINE_H; continue; }
         if (y > areaBottom) break;
 
-        if (_lines[i].isExpr) {
-            fb.setTextColor(COL_TEXT);
-        } else if (_lines[i].isError) {
-            fb.setTextColor(COL_ERROR);
-        } else {
-            fb.setTextColor(COL_ACCENT);
-        }
-        fb.setTextDatum(TR_DATUM);
-        fb.drawString(_lines[i].text, SCREEN_W - MARGIN_R, y);
+        if (_lines[i].isExpr)
+            tft.setTextColor(COL_TEXT);
+        else if (_lines[i].isError)
+            tft.setTextColor(COL_ERROR);
+        else
+            tft.setTextColor(COL_ACCENT);
+
+        // Right-align: calc pixel width (6px per char at size 1)
+        int tw = _lines[i].text.length() * 6;
+        tft.setCursor(SCREEN_W - MARGIN - tw, y);
+        tft.print(_lines[i].text);
         y += LINE_H;
     }
 
-    // Draw current input line
+    // Current input
     if (y <= areaBottom) {
-        fb.setTextColor(COL_TEXT);
-        fb.setTextDatum(TR_DATUM);
-        if (_input.length() > 0) {
-            fb.drawString(_input, SCREEN_W - MARGIN_R, y);
-        }
+        tft.setTextColor(COL_TEXT);
+        int tw = _input.length() * 6;
+        int cx = SCREEN_W - MARGIN - tw;
+        tft.setCursor(cx, y);
+        tft.print(_input);
 
-        // Blinking cursor
+        // Cursor
         if (_cursorVisible) {
-            int textW = fb.textWidth(_input);
-            int cx = SCREEN_W - MARGIN_R + 1;
-            fb.fillRect(cx, y, 2, LINE_H - 2, COL_ACCENT);
+            int cursorX = SCREEN_W - MARGIN;
+            tft.fillRect(cursorX + 1, y, 2, LINE_H - 2, COL_ACCENT);
         }
-    }
-}
-
-void CalcScreen::drawFkeyLabels(TFT_eSprite& fb) {
-    int y = SCREEN_H - FKEY_H;
-    fb.fillRect(0, y, SCREEN_W, FKEY_H, 0x0421);
-
-    fb.drawLine(0, y, SCREEN_W, y, 0x0841);
-
-    const char* labels[] = {"MATH", "PLOT", "TABLE", "PROG", "VARS"};
-    int w = SCREEN_W / 5;
-
-    fb.setTextColor(COL_DIM);
-    fb.setTextSize(1);
-    fb.setTextDatum(MC_DATUM);
-    for (int i = 0; i < 5; i++) {
-        fb.drawString(labels[i], w * i + w / 2, y + FKEY_H / 2);
     }
 }
