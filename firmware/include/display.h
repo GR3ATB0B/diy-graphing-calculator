@@ -7,9 +7,15 @@ class Display {
 public:
     void begin();
 
-    // Access the sprite (framebuffer) for drawing
+    // Access the sprite (framebuffer) for drawing — if sprite failed, draws go to tft() directly
     TFT_eSprite& sprite() { return _sprite; }
     TFT_eSPI&    tft()    { return _tft; }
+
+    // Returns the appropriate drawing target: sprite if available, tft if not
+    TFT_eSprite& canvas() { return _sprite; }
+
+    // Whether sprite framebuffer is in use
+    bool useSprite() const { return _useSprite; }
 
     // Push sprite framebuffer to display
     void flush();
@@ -20,4 +26,5 @@ public:
 private:
     TFT_eSPI    _tft = TFT_eSPI();
     TFT_eSprite _sprite = TFT_eSprite(&_tft);
+    bool        _useSprite = false;
 };
