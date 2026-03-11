@@ -1,30 +1,14 @@
-// display.h — ST7789 display driver with sprite-based framebuffer
+// display.h — ILI9341 display driver (Adafruit_GFX, direct drawing)
 #pragma once
-#include <TFT_eSPI.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_ILI9341.h>
 #include "config.h"
 
 class Display {
 public:
     void begin();
-
-    // Access the sprite (framebuffer) for drawing — if sprite failed, draws go to tft() directly
-    TFT_eSprite& sprite() { return _sprite; }
-    TFT_eSPI&    tft()    { return _tft; }
-
-    // Returns the appropriate drawing target: sprite if available, tft if not
-    TFT_eSprite& canvas() { return _sprite; }
-
-    // Whether sprite framebuffer is in use
-    bool useSprite() const { return _useSprite; }
-
-    // Push sprite framebuffer to display
-    void flush();
-
-    // Set backlight (0-255)
-    void setBacklight(uint8_t level);
+    Adafruit_ILI9341& tft() { return _tft; }
 
 private:
-    TFT_eSPI    _tft = TFT_eSPI();
-    TFT_eSprite _sprite = TFT_eSprite(&_tft);
-    bool        _useSprite = false;
+    Adafruit_ILI9341 _tft = Adafruit_ILI9341(TFT_CS, TFT_DC, TFT_MOSI, TFT_CLK, TFT_RST);
 };
