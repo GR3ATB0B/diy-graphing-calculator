@@ -1,10 +1,9 @@
-// evaluator.h — Expression parser with proper operator precedence
-// Supports: +, -, *, /, parentheses, decimals, negative numbers
+// evaluator.h — Expression parser with operator precedence
 #pragma once
 #include <Arduino.h>
 
 struct EvalResult {
-    bool   ok;
+    bool ok;
     double value;
     String error;
 };
@@ -15,10 +14,9 @@ public:
 
 private:
     const char* _p;
-
     double parseExpr();
     double parseTerm();
     double parseFactor();
     double parseNumber();
-    void   skipSpaces();
+    void skipSpaces();
 };
