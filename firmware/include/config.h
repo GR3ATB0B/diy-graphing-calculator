@@ -15,9 +15,9 @@
 #define TFT_CLK   7
 #define TFT_BLK   5
 
-// Screen dimensions (portrait, rotation 0)
-constexpr int SCREEN_W = 240;
-constexpr int SCREEN_H = 320;
+// Screen dimensions (landscape, rotation 1)
+constexpr int SCREEN_W = 320;
+constexpr int SCREEN_H = 240;
 
 // ============================================================
 //  CARDKB (M5Stack CardKB via I2C)
