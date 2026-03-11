@@ -1,19 +1,18 @@
-// calc_screen.h — Main calculator screen (TI-84 Plus CE style)
+// calc_screen.h — Main calculator screen
 #pragma once
 #include "screen.h"
 #include "evaluator.h"
 #include <vector>
 
-// A line on the screen: either an expression or a result
 struct DisplayLine {
     String text;
-    bool   isExpr;    // true = user expression, false = result
-    bool   isError;   // only relevant when !isExpr
+    bool isExpr;
+    bool isError;
 };
 
 class CalcScreen : public Screen {
 public:
-    void draw(TFT_eSprite& fb) override;
+    void draw(Adafruit_ILI9341& tft) override;
     void handleInput(char key) override;
     const char* title() override { return "CALC"; }
 
@@ -26,8 +25,7 @@ private:
     unsigned long _lastBlink = 0;
 
     void doEvaluate();
-    void drawStatusBar(TFT_eSprite& fb);
-    void drawMainArea(TFT_eSprite& fb);
-    void drawFkeyLabels(TFT_eSprite& fb);
+    void drawStatusBar(Adafruit_ILI9341& tft);
+    void drawMainArea(Adafruit_ILI9341& tft);
     String formatNumber(double v);
 };
