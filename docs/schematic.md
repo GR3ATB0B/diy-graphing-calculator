@@ -1,6 +1,6 @@
-# Nash Calculator — Hardware Schematic (v2 Simplified)
+# Nash Calculator — Hardware Schematic (v3)
 
-> XIAO ESP32S3 + ST7789 SPI Display + M5Stack CardKB + TP4056 Charging
+> XIAO ESP32S3 + ILI9341 SPI Display + M5Stack CardKB + TP4056 Charging
 
 ---
 
@@ -24,9 +24,9 @@
           ┌────────────────┼────────────────┐
           │                │                │
    ┌──────┴──────┐  ┌─────┴──────┐  ┌─────┴─────────┐
-   │  ST7789     │  │ XIAO       │  │ M5Stack       │
+   │  ILI9341    │  │ XIAO       │  │ M5Stack       │
    │  Display    │  │ ESP32S3    │  │ CardKB        │
-   │  320×240    │  │            │  │ (I2C 0x5F)    │
+   │  240×320    │  │            │  │ (I2C 0x5F)    │
    │  (SPI)      │  └────────────┘  └───────────────┘
    └─────────────┘
 ```
@@ -40,22 +40,22 @@
 | XIAO Pin | GPIO | Function       | Connected To         |
 |----------|------|----------------|----------------------|
 | D0       | 1    | I2C SDA        | CardKB SDA           |
-| D1       | 2    | SPI CS (TFT)   | ST7789 CS            |
-| D2       | 3    | TFT DC         | ST7789 DC/RS         |
-| D3       | 4    | TFT RST        | ST7789 RESET         |
-| D4       | 5    | TFT Backlight  | ST7789 BL (via MOSFET) |
+| D1       | 2    | SPI CS (TFT)   | ILI9341 CS           |
+| D2       | 3    | TFT DC         | ILI9341 DC/RS        |
+| D3       | 4    | TFT RST        | ILI9341 RESET        |
+| D4       | 5    | TFT Backlight  | ILI9341 BL           |
 | D5       | 6    | I2C SCL        | CardKB SCL           |
-| D8       | 7    | SPI SCLK       | ST7789 SCK           |
+| D8       | 7    | SPI SCLK       | ILI9341 SCK          |
 | D9       | 8    | Wake Button    | Deep sleep wake      |
-| D10      | 9    | SPI MOSI       | ST7789 SDA/MOSI      |
+| D10      | 9    | SPI MOSI       | ILI9341 SDA/MOSI     |
 | D11      | 10   | Battery ADC    | VBAT voltage divider |
 | D6       | 43   | (free)         | —                    |
 | D7       | 44   | (free)         | —                    |
 
-### SPI Bus (ST7789 Display)
+### SPI Bus (ILI9341 Display)
 
-| Signal | XIAO Pin | GPIO | ST7789 Pin |
-|--------|----------|------|------------|
+| Signal | XIAO Pin | GPIO | ILI9341 Pin |
+|--------|----------|------|-------------|
 | MOSI   | D10      | 9    | SDA        |
 | SCLK   | D8       | 7    | SCK        |
 | CS     | D1       | 2    | CS         |
@@ -117,8 +117,7 @@ USB-C ──┬── XIAO ESP32S3 (programming/serial)
 
 - **Deep Sleep:** ESP32S3 draws ~10μA in deep sleep
 - **Wake Source:** GPIO 8 (ext0 wakeup) — dedicated power button
-- **Backlight Control:** GPIO 5 drives ST7789 BL via N-channel MOSFET (2N7000)
-  - PWM for brightness control (8-bit, 1kHz)
+- **Backlight Control:** GPIO 5 drives ILI9341 BL (digital HIGH/LOW)
 
 ---
 
@@ -127,11 +126,11 @@ USB-C ──┬── XIAO ESP32S3 (programming/serial)
 | Component | Qty | Notes |
 |-----------|-----|-------|
 | XIAO ESP32S3 | 1 | 8MB PSRAM variant |
-| ST7789 2.4" IPS | 1 | 320×240, SPI, no touch |
+| ILI9341 2.4" TFT | 1 | 240×320, SPI, no touch |
 | M5Stack CardKB | 1 | I2C QWERTY keyboard |
 | TP4056 module | 1 | USB-C variant preferred |
 | LiPo battery | 1 | 2000mAh, JST-PH 2.0 |
-| 2N7000 MOSFET | 1 | Backlight control |
+| 2N7000 MOSFET | 1 | Backlight control (optional) |
 | 4.7kΩ resistors | 2 | I2C pull-ups |
 | 100kΩ resistors | 2 | Battery voltage divider |
 | 2.2kΩ resistor | 1 | TP4056 PROG |
